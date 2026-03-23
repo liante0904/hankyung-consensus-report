@@ -1,0 +1,16 @@
+[project]
+name = "hankyung-consensus-report"
+version = "0.1.0"
+description = "Hankyung Consensus Report Scraper Bot"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9.3",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.3",
+    "loguru>=0.7.2",
+    "python-dotenv>=1.0.1",
+]
+
+[tool.uv]
+dev-dependencies = []
