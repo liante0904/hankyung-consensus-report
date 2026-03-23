@@ -1,8 +1,9 @@
 services:
   hankyung-bot:
     build: .
-    image: hankyung-consensus-bot:latest
-    container_name: hankyung-consensus-bot
+    # ENV가 production이면 hankyung-consensus-bot, 아니면 hankyung-consensus-bot-dev
+    image: hankyung-consensus-bot:${ENV:-dev}
+    container_name: hankyung-consensus-bot${ENV_SUFFIX:-}
     user: "1001:1001"
     restart: always
     env_file: .env
