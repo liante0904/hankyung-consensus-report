@@ -14,7 +14,7 @@ jobs:
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
+          username: ubuntu
           key: ${{ secrets.DEPLOY_KEY }}
           port: 22
           script: |
