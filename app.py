@@ -22,7 +22,7 @@ def setup_logging():
     log_dir = os.path.join(base_log_dir, now_date)
     os.makedirs(log_dir, exist_ok=True)
     
-    log_file = os.path.join(log_dir, f"{now_date}_hankyungconsen.log")
+    log_file = os.path.join(log_dir, f"{now_date}_hankyung-consensus-report.log")
     logger.add(log_file, rotation="10 MB", retention="10 days", level="INFO", enqueue=True)
     return log_file
 
