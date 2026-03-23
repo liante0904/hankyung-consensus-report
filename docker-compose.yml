@@ -3,6 +3,7 @@ services:
     build: .
     image: hankyung-consensus-bot:latest
     container_name: hankyung-consensus-bot
+    user: "1000:1000"
     restart: always
     env_file: .env
     volumes:
