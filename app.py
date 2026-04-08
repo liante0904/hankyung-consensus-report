@@ -41,11 +41,11 @@ async def run_service(scraper):
         wait_seconds = interval - (seconds_since_hour % interval)
         if wait_seconds <= 0: wait_seconds = interval
 
-        logger.info(f"Waiting {int(wait_seconds)}s until next aligned run...")
+        logger.debug(f"Waiting {int(wait_seconds)}s until next aligned run...")
         await asyncio.sleep(wait_seconds)
         await asyncio.sleep(0.5)
 
-        logger.info(f"--- [Loop Start: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---")
+        logger.debug(f"--- [Loop Start: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---")
         try:
             await scraper.run()
             logger.info(f"Scraping completed.")

@@ -25,7 +25,7 @@ class DatabaseManager:
             db_path = os.path.join(base_dir, f"{prefix}_consensus.db")
 
         self.db_path = db_path
-        logger.info(f"Database initialized at: {self.db_path}")
+        logger.debug(f"Database initialized at: {self.db_path}")
         self._init_db()
 
     def _get_connection(self):

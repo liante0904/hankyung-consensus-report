@@ -153,29 +153,50 @@ class HankyungScraper:
             logger.info("No new reports to send.")
             return
 
-        logger.info(f"Sending {len(unsent)} new reports to Telegram...")
-        header = "● 한경컨센서스"
+        logger.debug(f"Grouping {len(unsent)} new reports by broker...")
+        
+        # 1. 증권사별 그룹화
+        broker_groups = {}
+        for report in unsent:
+            broker = report['BROKER']
+            if broker not in broker_groups:
+                broker_groups[broker] = []
+            broker_groups[broker].append(report)
+
+        # 2. 메시지 구성
         send_buffer = ""
         sent_ids = []
         
-        for report in unsent:
-            display_url = report['PDF_URL'] if report.get('PDF_URL') else report['URL']
-            content = f"<b>{report['TITLE']}</b> ({report['BROKER']})\n{EMOJI_PICK} <a href='{display_url}'>링크</a>\n\n"
+        for i, (broker, reports) in enumerate(broker_groups.items()):
+            # 첫 번째 그룹이 아니면 앞에 개행 추가
+            prefix_newline = "\n" if i > 0 else ""
+            broker_header = f"{prefix_newline}●{broker}\n"
+            report_list = ""
+            for report in reports:
+                display_url = report['PDF_URL'] if report.get('PDF_URL') else report['URL']
+                # 제목에서 종목코드가 이미 포함되어 있을 수 있으므로 그대로 사용
+                report_list += f"{report['TITLE']}\n{EMOJI_PICK}<a href='{display_url}'>링크</a>\n\n"
+                sent_ids.append(report['ID'])
             
-            if len(send_buffer) + len(content) > 3500:
-                await self._send_batch_message(header, send_buffer)
+            group_content = f"{broker_header}{report_list}"
+            
+            # 메시지 길이 제한 체크 (텔레그램 약 4000자)
+            if len(send_buffer) + len(group_content) > 3800:
+                await self._send_batch_message("", send_buffer)
                 send_buffer = ""
             
-            send_buffer += content
-            sent_ids.append(report['ID'])
+            send_buffer += group_content
             
         if send_buffer:
-            await self._send_batch_message(header, send_buffer)
+            await self._send_batch_message("", send_buffer)
             
         self.db.update_sent_status(sent_ids)
         logger.info(f"Telegram notifications sent for {len(sent_ids)} items.")
 
     async def _send_batch_message(self, header, body):
         if not body: return
-        full_message = f"{self.prefix}{header}\n\n{body}"
-        await sendMarkDownText(token=TELEGRAM_BOT_TOKEN, chat_id=CHANNEL_ID, sendMessageText=full_message, parse_mode="HTML")
+        # header가 비어있으면 body만 전송, prefix 뒤에 한 줄 띄움 (\n\n)
+        prefix_space = f"{self.prefix}\n\n" if self.prefix else ""
+        full_message = f"{prefix_space}{header}\n{body}" if header else f"{prefix_space}{body}"
+        await sendMarkDownText(token=TELEGRAM_BOT_TOKEN, chat_id=CHANNEL_ID, sendMessageText=full_message.strip(), parse_mode="HTML")
+L")
