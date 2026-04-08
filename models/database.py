@@ -4,8 +4,28 @@ import os
 from loguru import logger
 
 class DatabaseManager:
-    def __init__(self, db_path):
+    def __init__(self, db_path=None):
+        """
+        db_path가 제공되지 않으면 환경 변수 ENV와 실행 경로를 기반으로 자동 결정합니다.
+        예: prod_consensus.db, dev_consensus.db
+        """
+        if db_path is None:
+            # 1. 환경 변수 확인
+            env = os.getenv("ENV", "dev").lower()
+            # 2. 경로 기반 자동 감지 (상위 경로에 dev가 포함되어 있는지)
+            current_path = os.getcwd().lower()
+            if "dev" in current_path and env != "production":
+                env = "dev"
+            
+            # 3. Docker 여부에 따른 기본 경로 설정
+            is_docker = os.path.exists("/app")
+            base_dir = "/app/db" if is_docker else "./db"
+            
+            prefix = "prod" if env in ["production", "prod"] else "dev"
+            db_path = os.path.join(base_dir, f"{prefix}_consensus.db")
+
         self.db_path = db_path
+        logger.info(f"Database initialized at: {self.db_path}")
         self._init_db()
 
     def _get_connection(self):

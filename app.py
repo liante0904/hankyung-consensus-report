@@ -67,13 +67,9 @@ async def run_once(scraper):
 async def main():
     setup_logging()
     
-    # DB 파일명 분리 (prod_hankyung_consensus.db / dev_hankyung_consensus.db)
-    prefix = 'prod' if IS_PROD else 'dev'
-    default_db = f"/app/db/{prefix}_hankyung_consensus.db" if IS_DOCKER else f"./db/{prefix}_hankyung_consensus.db"
-    db_path = os.getenv('DB_PATH', default_db)
-    
     try:
-        db = DatabaseManager(db_path)
+        # DB 경로를 명시하지 않으면 ENV와 실행 경로에 따라 자동으로 생성됨 (dev_consensus.db, prod_consensus.db)
+        db = DatabaseManager()
         scraper = HankyungScraper(db, is_dev=(not IS_PROD))
         
         if IS_DOCKER:
