@@ -1,4 +1,4 @@
-name: Deploy to Production
+name: CI/CD Pipeline
 
 on:
   push:
@@ -6,24 +6,63 @@ on:
       - main
 
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:production
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ubuntu
           key: ${{ secrets.DEPLOY_KEY }}
           port: 22
           script: |
-            mkdir -p ~/prod
-            cd ~/prod
-            if [ ! -d "hankyung-consensus-report" ]; then
-              git clone git@github.com:${{ github.repository }}.git hankyung-consensus-report
+            mkdir -p ~/prod/hankyung-consensus-report
+            cd ~/prod/hankyung-consensus-report
+            
+            # docker-compose.yml 파일만 업데이트 (git pull 대신 직접 내려받거나 git 사용)
+            # 여기서는 이미 서버에 소스 코드가 있다고 가정하고 git pull 진행
+            if [ -d ".git" ]; then
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              git clone git@github.com:${{ github.repository }}.git .
             fi
-            cd hankyung-consensus-report
-            git fetch origin main
-            git reset --hard origin/main
-            docker-compose up -d --build
+            
+            # 최신 이미지 풀링 및 컨테이너 재시작
+            # ENV=production으로 설정하여 ghcr 이미지 사용 유도
+            export ENV=production
+            docker compose pull
+            docker compose up -d
