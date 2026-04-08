@@ -26,17 +26,19 @@ def setup_logging():
     logger.add(log_file, rotation="10 MB", retention="10 days", level="INFO", enqueue=True)
     return log_file
 
-async def run_service(scraper, db_path):
-    """도커 서비스 모드: 무한 루프 (시계 정시 기준 30분 단위 실행)"""
+async def run_service(scraper):
+    """도커 서비스 모드: 무한 루프 (30분 단위 실행)"""
     log_prefix = "" if IS_PROD else "[DEV] "
-    interval = 1800  # 30분
-    logger.info(f"{log_prefix}Starting Hankyung Consensus Bot in SERVICE mode (Aligned to 30m)")
+    interval = 1800
+    logger.info(f"{log_prefix}Starting Hankyung Consensus Bot in SERVICE mode")
+    
+    # 시작 시 과거 데이터 수집 (알림 없이 DB만 채움)
+    await scraper.fetch_historical_data()
     
     while True:
         now = datetime.datetime.now()
         seconds_since_hour = (now.minute * 60) + now.second
         wait_seconds = interval - (seconds_since_hour % interval)
-        
         if wait_seconds <= 0: wait_seconds = interval
 
         logger.info(f"Waiting {int(wait_seconds)}s until next aligned run...")
@@ -51,11 +53,12 @@ async def run_service(scraper, db_path):
             logger.error(f"Unexpected error during scraping: {e}")
             await asyncio.sleep(10)
 
-async def run_once(scraper, db_path):
+async def run_once(scraper):
     """로컬 태스크 모드: 1회 실행"""
     log_prefix = "" if IS_PROD else "[DEV] "
     logger.info(f"{log_prefix}Starting Hankyung Consensus Bot in TASK mode (Once)")
     try:
+        await scraper.fetch_historical_data()
         await scraper.run()
         logger.info("Scraping completed successfully.")
     except Exception as e:
@@ -64,17 +67,19 @@ async def run_once(scraper, db_path):
 async def main():
     setup_logging()
     
+    # DB 파일명 분리 (prod_hankyung_consensus.db / dev_hankyung_consensus.db)
     prefix = 'prod' if IS_PROD else 'dev'
-    db_path = os.getenv('DB_PATH', f'./db/{prefix}_hankyung_consensus.db')
+    default_db = f"/app/db/{prefix}_hankyung_consensus.db" if IS_DOCKER else f"./db/{prefix}_hankyung_consensus.db"
+    db_path = os.getenv('DB_PATH', default_db)
     
     try:
         db = DatabaseManager(db_path)
         scraper = HankyungScraper(db, is_dev=(not IS_PROD))
         
         if IS_DOCKER:
-            await run_service(scraper, db_path)
+            await run_service(scraper)
         else:
-            await run_once(scraper, db_path)
+            await run_once(scraper)
             
     except Exception as e:
         logger.critical(f"Critical Initialization Error: {e}")

@@ -1,20 +1,19 @@
-# 1. Build stage
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-WORKDIR /app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
-
-# 2. Final stage
 FROM python:3.12-slim-bookworm
+
 WORKDIR /app
-ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-# 빌드 결과물 복사
-COPY --from=builder /app/.venv /app/.venv
+# uv 설치 (pip 사용)
+RUN pip install --no-cache-dir uv
+
+# 의존성 설치
+COPY uv.lock pyproject.toml ./
+RUN uv sync --frozen --no-dev
+
+# 가상환경의 bin 디렉토리를 PATH에 추가
+ENV PATH="/app/.venv/bin:$PATH"
+
+# 소스 코드 복사
 COPY . .
 
 # 데이터 및 로그를 위한 마운트 포인트 생성

@@ -5,3 +5,7 @@ __pycache__
 logs
 db
 .env
+.gemini/
+.vscode/
+.idea/
+.DS_Store

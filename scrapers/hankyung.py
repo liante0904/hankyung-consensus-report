@@ -3,6 +3,8 @@ import os
 import requests
 import html
 import asyncio
+import datetime
+import urllib.parse
 from bs4 import BeautifulSoup
 from loguru import logger
 from dotenv import load_dotenv
@@ -21,45 +23,159 @@ EMOJI_PICK = "👉"
 class HankyungScraper:
     def __init__(self, db: DatabaseManager, is_dev: bool = False):
         self.db = db
-        self.target_url = 'https://consensus.hankyung.com/analysis/list?search_date=today&search_text=&pagenum=1000'
+        self.list_url = 'https://consensus.hankyung.com/analysis/list'
         self.prefix = "<b>[DEV]</b> " if is_dev else ""
         logger.info(f"HankyungScraper initialized with prefix: '{self.prefix}'")
 
     def escape_html(self, text):
         return html.escape(text) if text else ""
 
-    async def _send_batch_message(self, header, body):
-        if not body: return
-        full_message = f"{self.prefix}{header}\n{body}"
-        await sendMarkDownText(token=TELEGRAM_BOT_TOKEN, chat_id=CHANNEL_ID, sendMessageText=full_message, parse_mode="HTML")
-
-    async def run(self):
-        source = "HANKYUNG"
-        header = "● 한경컨센서스"
+    def _parse_report_idx(self, url):
+        """URL에서 report_idx 값을 추출"""
+        if not url: return None
         try:
-            logger.info(f"Fetching Hankyung Consensus: {self.target_url}")
-            webpage = requests.get(self.target_url, verify=False, headers={
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query)
+            return params.get('report_idx', [None])[0]
+        except Exception:
+            return None
+
+    async def _fetch_range_and_insert(self, sdate, edate, page=1, sent_yn='N'):
+        """주어진 날짜 범위와 페이지에서 데이터를 긁어서 DB에 저장"""
+        source = "HANKYUNG"
+        new_count = 0
+        url = f"{self.list_url}?sdate={sdate}&edate={edate}&now_page={page}&search_value=&report_type=&pagenum=1000&search_text=&business_code="
+        
+        try:
+            webpage = requests.get(url, verify=False, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'
-            })
+            }, timeout=60)
             soup = BeautifulSoup(webpage.content, "html.parser")
-            rows = soup.select('#contents > div.table_style01 > table > tbody > tr')
-            if not rows: return
-            send_buffer = ""
+            rows = soup.select('div.table_style01 table tbody tr')
+            
+            if not rows:
+                return 0
+
             for row in rows:
                 try:
-                    title_raw = row.select_one('td.text_l > a').text.strip()
-                    link = 'https://consensus.hankyung.com' + row.select_one('td:nth-child(6) > div > a').attrs['href']
-                    broker = row.select_one('td:nth-child(5)').text.strip()
+                    if row.select_one('td.no_data') or "데이터가 없습니다" in row.text:
+                        return 0
+                    
+                    cols = row.select('td')
+                    if len(cols) < 6: continue
+                    
+                    # 1번째 td: 작성일 (REG_DT)
+                    reg_dt = cols[0].text.strip()
+                    
+                    # 3번째 td: 제목 (TITLE)
+                    title_el = cols[2].select_one('a')
+                    if not title_el: continue
+                    title_raw = title_el.text.strip()
+                    
+                    # 5번째 td: 증권사 (BROKER)
+                    broker = cols[4].text.strip()
+                    
+                    # 6번째 td: 링크 및 IDX 추출
+                    link_el = cols[5].select_one('div.link_btn a') or cols[5].select_one('a')
+                    if not link_el or 'href' not in link_el.attrs: continue
+                    link = 'https://consensus.hankyung.com' + link_el.attrs['href']
+                    
+                    report_idx = self._parse_report_idx(link)
                     title = self.escape_html(title_raw)
-                    if self.db.insert_report(title=title, url=link, source=source, broker=broker):
-                        logger.info(f"New Hankyung Report: {title} ({broker})")
-                        send_buffer += f"<b>{title}</b> ({broker})\n{EMOJI_PICK} <a href='{link}'>링크</a>\n\n"
-                        if len(send_buffer) >= 3000:
-                            await self._send_batch_message(header, send_buffer)
-                            send_buffer = ""
-                except Exception:
+                    
+                    # DB 저장 (report_idx 포함)
+                    if self.db.insert_report(
+                        title=title, 
+                        url=link, 
+                        pdf_url=link, 
+                        source=source, 
+                        broker=broker, 
+                        reg_dt=reg_dt, 
+                        report_idx=report_idx, 
+                        sent_yn=sent_yn
+                    ):
+                        new_count += 1
+                except Exception as e:
+                    logger.debug(f"Row parsing error: {e}")
                     continue
-            if send_buffer:
-                await self._send_batch_message(header, send_buffer)
+            
+            return new_count
         except Exception as e:
-            logger.error(f"Error fetching Hankyung: {e}")
+            logger.error(f"Error fetching Hankyung ({sdate}~{edate}, Page {page}): {e}")
+            return 0
+
+    async def fetch_historical_data(self):
+        """과거 모든 데이터를 연도별로 쪼개서 전체 수집 (1995년부터 현재까지)"""
+        current_year = datetime.datetime.now().year
+        start_year = 1995 
+        
+        logger.info(f"Starting TOTAL historical collection from {start_year} to {current_year}")
+        
+        total_saved = 0
+        for year in range(current_year, start_year - 1, -1):
+            sdate = f"{year}-01-01"
+            edate = f"{year}-12-31"
+            if year == current_year:
+                edate = datetime.datetime.now().strftime('%Y-%m-%d')
+            
+            logger.info(f"--- Collecting Year {year} ---")
+            
+            page = 1
+            year_saved = 0
+            while True:
+                count = await self._fetch_range_and_insert(sdate=sdate, edate=edate, page=page, sent_yn='Y')
+                year_saved += count
+                total_saved += count
+                
+                if count == 0:
+                    break
+                
+                logger.info(f"Year {year} Page {page}: {count} items saved. (Total: {total_saved})")
+                page += 1
+                await asyncio.sleep(0.3)
+            
+            if year_saved == 0 and year < 2000:
+                logger.info(f"No data found in year {year}. Stopping historical search.")
+                break
+                
+            logger.info(f"Finished Year {year}: {year_saved} items saved.")
+            
+        logger.info(f"ALL historical collection finished. Total {total_saved} items indexed.")
+
+    async def run(self):
+        """실시간 데이터 체크 및 발송"""
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        logger.info(f"Checking for new reports today ({today})...")
+        await self._fetch_range_and_insert(sdate=today, edate=today, page=1, sent_yn='N')
+        
+        unsent = self.db.get_unsent_reports()
+        if not unsent:
+            logger.info("No new reports to send.")
+            return
+
+        logger.info(f"Sending {len(unsent)} new reports to Telegram...")
+        header = "● 한경컨센서스"
+        send_buffer = ""
+        sent_ids = []
+        
+        for report in unsent:
+            display_url = report['PDF_URL'] if report.get('PDF_URL') else report['URL']
+            content = f"<b>{report['TITLE']}</b> ({report['BROKER']})\n{EMOJI_PICK} <a href='{display_url}'>링크</a>\n\n"
+            
+            if len(send_buffer) + len(content) > 3500:
+                await self._send_batch_message(header, send_buffer)
+                send_buffer = ""
+            
+            send_buffer += content
+            sent_ids.append(report['ID'])
+            
+        if send_buffer:
+            await self._send_batch_message(header, send_buffer)
+            
+        self.db.update_sent_status(sent_ids)
+        logger.info(f"Telegram notifications sent for {len(sent_ids)} items.")
+
+    async def _send_batch_message(self, header, body):
+        if not body: return
+        full_message = f"{self.prefix}{header}\n\n{body}"
+        await sendMarkDownText(token=TELEGRAM_BOT_TOKEN, chat_id=CHANNEL_ID, sendMessageText=full_message, parse_mode="HTML")
