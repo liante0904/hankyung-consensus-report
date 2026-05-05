@@ -18,7 +18,7 @@ IS_PROD = ENV == 'production'
 # 로그 설정
 def setup_logging():
     now_date = datetime.datetime.now().strftime("%Y%m%d")
-    base_log_dir = "/app/log" if IS_DOCKER else os.path.expanduser("~/log")
+    base_log_dir = "/app/log" if IS_DOCKER else os.path.expanduser("~/logs")
     log_dir = os.path.join(base_log_dir, now_date)
     os.makedirs(log_dir, exist_ok=True)
     

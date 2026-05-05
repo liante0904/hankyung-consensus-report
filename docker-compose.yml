@@ -9,4 +9,4 @@ services:
     env_file: .env
     volumes:
       - ~/sqlite3:/app/db
-      - ~/log:/app/log
+      - ~/logs:/app/log
