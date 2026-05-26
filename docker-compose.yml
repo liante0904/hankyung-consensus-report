@@ -3,10 +3,11 @@ services:
     build: .
     # ENV가 production이면 ghcr.io 주소 사용, 아니면 로컬 태그 사용
     image: ${IMAGE_NAME:-ghcr.io/liante0904/hankyung-consensus-bot}:${ENV:-dev}
-    container_name: hankyung-consensus-bot${ENV_SUFFIX:-}
+    container_name: hankyung-consensus-report-${ENV_SUFFIX:-dev}
     user: "1001:1001"
     restart: always
-    env_file: .env
+    env_file:
+      - .env
     volumes:
       - ~/sqlite3:/app/db
       - ~/logs:/app/log
